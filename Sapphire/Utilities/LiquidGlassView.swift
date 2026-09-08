@@ -245,10 +245,25 @@ private enum GlassRuntime {
 // MARK: - Host NSView
 
 final class LiquidGlassHostView: NSView {
+    // SwiftUI re-runs `updateNSView` on every frame of a resize, so the last applied
+    // parameters are kept to turn identical reconfigurations into no-ops.
+    private struct AppliedConfiguration: Equatable {
+        var material: LiquidGlassMaterial
+        var cornerRadius: CGFloat
+        var tintColor: NSColor?
+        var blendingMode: LiquidGlassBlendingMode
+        var appearance: LiquidGlassAppearance
+        var interaction: LiquidGlassInteraction
+        var contentLensing: Int?
+        var scrim: Int?
+        var subdued: Int?
+    }
+
     private var effectView: NSView?
     private var isGlassEffectView = false
     private var currentBlendingMode: LiquidGlassBlendingMode = .behindWindow
     private var maskCGPath: CGPath?
+    private var appliedConfiguration: AppliedConfiguration?
     private let pathMaskLayer: CAShapeLayer = {
         let layer = CAShapeLayer()
         layer.fillColor = NSColor.black.cgColor
@@ -391,6 +406,8 @@ final class LiquidGlassHostView: NSView {
     }
 
     func setMaskPath(_ path: CGPath?) {
+        if let path, let current = maskCGPath, CFEqual(current, path) { return }
+        if path == nil, maskCGPath == nil { return }
         if let path {
             let pathBounds = path.boundingBox
             guard pathBounds.origin.x.isFinite, pathBounds.origin.y.isFinite,
@@ -418,6 +435,20 @@ final class LiquidGlassHostView: NSView {
         currentBlendingMode = blendingMode
         if effectView == nil { rebuildEffectView() }
         guard let effectView else { return }
+
+        let desired = AppliedConfiguration(
+            material: material,
+            cornerRadius: cornerRadius,
+            tintColor: tintColor,
+            blendingMode: blendingMode,
+            appearance: appearance,
+            interaction: interaction,
+            contentLensing: contentLensing,
+            scrim: scrim,
+            subdued: subdued
+        )
+        guard desired != appliedConfiguration else { return }
+        appliedConfiguration = desired
 
         GlassRuntime.apply(
             to: effectView,
@@ -449,6 +480,7 @@ final class LiquidGlassHostView: NSView {
     private func rebuildEffectView() {
         effectView?.removeFromSuperview()
         removeBackdropObservers()
+        appliedConfiguration = nil
         let glass = GlassRuntime.makeEffectView(frame: bounds)
         isGlassEffectView = !(glass is NSVisualEffectView)
         glass.wantsLayer = true
@@ -463,23 +495,43 @@ final class LiquidGlassHostView: NSView {
               bounds.origin.x.isFinite, bounds.origin.y.isFinite,
               bounds.width.isFinite, bounds.height.isFinite,
               !bounds.isEmpty else {
-            layer?.mask = nil
-            effectView?.layer?.mask = nil
+            clearPathMask()
             return
         }
 
         let pathBounds = path.boundingBox
         guard pathBounds.origin.x.isFinite, pathBounds.origin.y.isFinite,
               pathBounds.width.isFinite, pathBounds.height.isFinite else {
-            layer?.mask = nil
-            effectView?.layer?.mask = nil
+            clearPathMask()
             return
         }
 
-        pathMaskLayer.frame = bounds
-        pathMaskLayer.path = path
-        layer?.mask = pathMaskLayer
+        // `pathMaskLayer` is not view-backed, so `frame`/`path` changes would otherwise pick
+        // up CoreAnimation's default implicit animation and re-interpolate every frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if pathMaskLayer.frame != bounds {
+            pathMaskLayer.frame = bounds
+        }
+        if pathMaskLayer.path.map({ !CFEqual($0, path) }) ?? true {
+            pathMaskLayer.path = path
+        }
+        if layer?.mask !== pathMaskLayer {
+            layer?.mask = pathMaskLayer
+        }
+        if effectView?.layer?.mask != nil {
+            effectView?.layer?.mask = nil
+        }
+        CATransaction.commit()
+    }
+
+    private func clearPathMask() {
+        guard layer?.mask != nil || effectView?.layer?.mask != nil else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.mask = nil
         effectView?.layer?.mask = nil
+        CATransaction.commit()
     }
 }
 

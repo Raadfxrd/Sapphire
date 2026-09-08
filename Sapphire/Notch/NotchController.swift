@@ -277,11 +277,7 @@ struct NotchController: View {
     }
 
     private var shouldHideActivityForFullScreen: Bool {
-        guard settings.settings.hideLiveActivityInFullScreen, myScreenIsFullScreen else {
-            return false
-        }
-        notchLog.info("shouldHideActivityForFullScreen: hiding on this display (fullscreen on my screen)")
-        return true
+        settings.settings.hideLiveActivityInFullScreen && myScreenIsFullScreen
     }
 
     private var shouldHideActivityForInactiveDisplay: Bool {

@@ -652,8 +652,10 @@ class LiveActivityManager: ObservableObject {
         if self.currentActivity == .battery, let state = batteryMonitor.currentState, !state.isPluggedIn, self.dismissalTimer != nil {
             return
         }
-        if notchDisplayIsFullScreen && settingsModel.settings.hideLiveActivityInFullScreen {
-            consumeBlockedEphemeralActivities(winningType: nil)
+        let isFullScreen = notchDisplayIsFullScreen
+
+        if isFullScreen && settingsModel.settings.hideLiveActivityInFullScreen {
+            consumeBlockedEphemeralActivities(winningType: nil, isFullScreen: isFullScreen)
             if currentActivity != .none {
                 setActivity(type: .none, content: .none)
             }
@@ -688,7 +690,7 @@ class LiveActivityManager: ObservableObject {
             guard snoozedActivities[activityType] == nil else { continue }
             guard let checker = activityCheckers[activityType] else { continue }
 
-            if notchDisplayIsFullScreen {
+            if isFullScreen {
                 if let liveActivitySettingsType = activityType.toLiveActivityType(),
                    settingsModel.settings.hideActivitiesInFullScreen[liveActivitySettingsType.rawValue] == true {
                     logger.info("full-screen: blocking activity \(activityType.rawValue) (hidden-in-fullscreen set)")
@@ -703,7 +705,6 @@ class LiveActivityManager: ObservableObject {
         }
 
         let fullScreenSettingsType = settingsModel.settings.hideActivitiesInFullScreen
-        let isFullScreen = notchDisplayIsFullScreen
 
         if winningCandidate == nil,
            !(isFullScreen && fullScreenSettingsType[LiveActivityType.stats.rawValue] == true),
@@ -725,7 +726,7 @@ class LiveActivityManager: ObservableObject {
             winningCandidate = candidate
         }
 
-        consumeBlockedEphemeralActivities(winningType: winningCandidate?.0)
+        consumeBlockedEphemeralActivities(winningType: winningCandidate?.0, isFullScreen: isFullScreen)
 
         if let (type, content, duration) = winningCandidate {
             setActivity(type: type, content: content, dismissAfter: duration)
@@ -735,13 +736,13 @@ class LiveActivityManager: ObservableObject {
         scheduleDismissToNoneUnlessRecovered(allowImmediate: allowImmediateDismiss)
     }
 
-    private func consumeBlockedEphemeralActivities(winningType: ActivityType?) {
+    private func consumeBlockedEphemeralActivities(winningType: ActivityType?, isFullScreen: Bool) {
         for activityType in ephemeralActivityTypes {
             guard activityType != winningType else { continue }
             guard snoozedActivities[activityType] == nil else { continue }
             guard let checker = activityCheckers[activityType] else { continue }
 
-            if notchDisplayIsFullScreen {
+            if isFullScreen {
                 if let liveActivitySettingsType = activityType.toLiveActivityType(),
                    settingsModel.settings.hideActivitiesInFullScreen[liveActivitySettingsType.rawValue] == true {
                     logger.info("full-screen: blocking activity \(activityType.rawValue) (hidden-in-fullscreen set)")
